@@ -8,7 +8,9 @@ import play.libs.ws.WSClient;
 
 import javax.inject.Inject;
 
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BinaryOperator;
 
 import static play.mvc.Http.Status.OK;
 
@@ -26,7 +28,7 @@ public class BridgeClient {
     private final String apiClientSecret;
 
     // these are hardcoded for simplicity's sake
-    private static final String USER_EMAIL = "user1@mail.com";
+    private static final String USER_EMAIL = "user5@mail.com";
     private static final String USER_PASSWORD = "a!Strongp#assword1";
 
     @Inject
@@ -60,22 +62,31 @@ public class BridgeClient {
                 .join();
     }
 
-    public double doSomething() {
+    public double retrieveSumOfAllAccounts() {
         Optional<AuthenticateResponse> maybeAccessToken = authenticateUser(USER_EMAIL, USER_PASSWORD);
 
-        wsClient.url(baseUrl + "")
-                .addHeader("Bankin-Version", apiVersion)
-                .addHeader("Authorization", "Bearer ")
-                .addQueryParameter("myparam", "myvalue")
-                .get()
-                .thenApply(response -> {
-                    GetAccountsResponse getAccountsResponse = Json.fromJson(response.asJson(), GetAccountsResponse.class);
-
-                    return 0d;
-                })
-                .toCompletableFuture()
-                .join();
-
-        return 0d;
+        if (maybeAccessToken.isPresent()) {
+            return wsClient.url(baseUrl + "/accounts")
+                    .addHeader("Bankin-Version", apiVersion)
+                    .addHeader("Authorization", "Bearer " + maybeAccessToken.get().accessToken)
+                    .addQueryParameter("client_id", apiClientId)
+                    .addQueryParameter("client_secret", apiClientSecret)
+                    .get()
+                    .thenApply(response -> {
+                        GetAccountsResponse accountsResponse = Json.fromJson(response.asJson(), GetAccountsResponse.class);
+                        if (accountsResponse != null && accountsResponse.accounts != null) {
+                            return accountsResponse.accounts.stream()
+                                    .filter(a -> a!= null && a.balance != null)
+                                    .map(a -> a.balance)
+                                    .reduce(0.0, Double::sum);
+                        } else {
+                            return 0.0;
+                        }
+                    })
+                    .toCompletableFuture()
+                    .join();
+        } else {
+            return 0.0;
+        }
     }
 }
